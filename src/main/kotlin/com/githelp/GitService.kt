@@ -3,7 +3,14 @@ package com.githelp
 import java.io.File
 import java.util.concurrent.TimeUnit
 
-data class Branch(val name: String, val isCurrent: Boolean, val isLocalOnly: Boolean = false)
+data class Branch(
+        val name: String,
+        val isCurrent: Boolean,
+        val isLocalOnly: Boolean = false,
+        val commitHash: String = "",
+        val commitDate: String = "",
+        val parentBranch: String? = null
+)
 
 data class GitProject(
         val path: String,
@@ -50,28 +57,54 @@ class GitService {
     }
 
     private fun getBranches(dir: File): List<Branch> {
-        val output = runCommand(dir, "git", "branch", "--no-color", "-vv")
-        println(
-                "DEBUG: 'git branch' output for ${dir.name} in ${dir.absolutePath}:\n---\n$output\n---"
-        )
+        val format = "%(refname:short)|%(objectname:short)|%(committerdate:short)|%(upstream)"
+        val output = runCommand(dir, "git", "for-each-ref", "--format=$format", "refs/heads/")
+
+        val currentBranchName =
+                try {
+                    runCommand(dir, "git", "rev-parse", "--abbrev-ref", "HEAD").trim()
+                } catch (e: Exception) {
+                    ""
+                }
 
         val branches =
-                output.lines().filter { it.isNotBlank() }.map { line ->
-                    val trimmed = line.trim()
-                    val isCurrent = trimmed.startsWith("*")
-                    val withoutCurrent =
-                            if (isCurrent) trimmed.removePrefix("*").trim() else trimmed
-                    val name =
-                            if (withoutCurrent.startsWith("(")) {
-                                withoutCurrent.substringBefore(")") + ")"
-                            } else {
-                                withoutCurrent.substringBefore(" ")
-                            }
-                    val rest = withoutCurrent.substringAfter(name).trim()
-                    val isLocalOnly = !rest.substringAfter(" ").trim().startsWith("[")
-                    Branch(name, isCurrent, isLocalOnly)
-                }
-        println("DEBUG: Parsed branches: $branches")
+                output.lines()
+                        .filter { it.isNotBlank() }
+                        .map { line ->
+                            val parts = line.split("|")
+                            val name = parts[0]
+                            val hash = parts.getOrElse(1) { "" }
+                            val dateStr = parts.getOrElse(2) { "" }
+                            val upstream = parts.getOrElse(3) { "" }
+                            val isCurrent = name == currentBranchName
+                            val isLocalOnly = upstream.isBlank()
+                            val parent = getParentBranch(dir, name)
+
+                            Branch(name, isCurrent, isLocalOnly, hash, dateStr, parent)
+                        }
+                        .toMutableList()
+
+        // Handle detached HEAD if it's not in refs/heads/
+        if (currentBranchName == "HEAD" ||
+                        (currentBranchName.isNotBlank() && branches.none { it.isCurrent })
+        ) {
+            try {
+                val (hash, date) = getCommitInfo(dir)
+                branches.add(
+                        Branch(
+                                name =
+                                        if (currentBranchName == "HEAD") "(Detached)"
+                                        else currentBranchName,
+                                isCurrent = true,
+                                isLocalOnly = true,
+                                commitHash = hash,
+                                commitDate = date,
+                                parentBranch = "main"
+                        )
+                )
+            } catch (e: Exception) {}
+        }
+
         return branches
     }
 
@@ -141,37 +174,74 @@ class GitService {
         }
     }
 
-    fun performMerge(path: String, targetBranch: String) {
-        println("DEBUG: performMerge path=$path target=$targetBranch")
+    fun performMerge(path: String, sourceBranch: String, targetBranch: String? = null) {
+        println("DEBUG: performMerge path=$path source=$sourceBranch target=$targetBranch")
         val dir = File(path)
-        runCommand(dir, "git", "merge", targetBranch)
+        if (!targetBranch.isNullOrBlank()) {
+            ensureBranch(dir, targetBranch)
+        }
+        runCommand(dir, "git", "merge", sourceBranch)
     }
 
-    fun createBranch(path: String, branchName: String) {
-        println("DEBUG: createBranch path=$path newBranch=$branchName")
+    fun createBranch(path: String, branchName: String, baseBranch: String? = null) {
+        println("DEBUG: createBranch path=$path newBranch=$branchName base=$baseBranch")
         val dir = File(path)
-        runCommand(dir, "git", "checkout", "-b", branchName)
+        if (baseBranch.isNullOrBlank()) {
+            runCommand(dir, "git", "checkout", "-b", branchName)
+        } else {
+            runCommand(dir, "git", "checkout", "-b", branchName, baseBranch)
+        }
     }
 
-    fun performPull(path: String) {
-        println("DEBUG: performPull path=$path")
+    fun performFetch(path: String) {
+        println("DEBUG: performFetch path=$path")
         val dir = File(path)
+        runCommand(dir, "git", "fetch", "--all")
+    }
+
+    fun performPull(path: String, branch: String? = null) {
+        println("DEBUG: performPull path=$path branch=$branch")
+        val dir = File(path)
+        if (!branch.isNullOrBlank()) {
+            ensureBranch(dir, branch)
+        }
         runCommand(dir, "git", "pull")
     }
 
-    fun performPush(path: String, setUpstream: Boolean = false) {
-        println("DEBUG: performPush path=$path, setUpstream=$setUpstream")
+    fun performPush(path: String, branch: String? = null, setUpstream: Boolean = false) {
+        println("DEBUG: performPush path=$path, branch=$branch, setUpstream=$setUpstream")
         val dir = File(path)
 
+        if (!branch.isNullOrBlank()) {
+            ensureBranch(dir, branch)
+        }
+
         if (setUpstream) {
-            val branch = runCommand(dir, "git", "rev-parse", "--abbrev-ref", "HEAD").trim()
-            if (branch.isEmpty() || branch == "HEAD") {
+            val currentBranch = runCommand(dir, "git", "rev-parse", "--abbrev-ref", "HEAD").trim()
+            if (currentBranch.isEmpty() || currentBranch == "HEAD") {
                 throw RuntimeException("Cannot push detached HEAD or missing branch")
             }
-            println("DEBUG: Setting upstream to origin $branch")
-            runCommand(dir, "git", "push", "-u", "origin", branch)
+
+            // Detect correct remote
+            val remotes = runCommand(dir, "git", "remote").trim().lines().filter { it.isNotBlank() }
+            if (remotes.isEmpty()) {
+                throw RuntimeException("No remotes configured for project at $path")
+            }
+
+            val remoteToUse = if (remotes.contains("origin")) "origin" else remotes.first()
+
+            println("DEBUG: Setting upstream to $remoteToUse $currentBranch")
+            runCommand(dir, "git", "push", "-u", remoteToUse, currentBranch)
         } else {
             runCommand(dir, "git", "push")
+        }
+    }
+
+    private fun ensureBranch(dir: File, branch: String) {
+        val current = runCommand(dir, "git", "rev-parse", "--abbrev-ref", "HEAD").trim()
+        if (current != branch) {
+            println("DEBUG: Auto-switching to $branch before action")
+            runCommand(dir, "git", "checkout", branch)
         }
     }
 

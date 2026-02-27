@@ -148,15 +148,15 @@ fun HTML.gitHelpPage() {
                         padding: 30px;
                         border-radius: 12px;
                         border: 1px solid var(--border);
-                        width: 400px;
+                        width: 700px;
                         animation: fadeIn 0.3s ease-out;
-                        max-height: 80vh;
+                        max-height: 90vh;
                         display: flex;
                         flex-direction: column;
                     }
                     .modal-projects {
                         margin: 15px 0;
-                        max-height: 200px;
+                        max-height: 350px;
                         overflow-y: auto;
                         border: 1px solid var(--border);
                         border-radius: 8px;
@@ -257,7 +257,10 @@ fun HTML.gitHelpPage() {
                     }
                     .global-loading-overlay {
                         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-                        background: rgba(15, 23, 42, 0.8); z-index: 9999;
+                        background: rgba(15, 23, 42, 0.4); 
+                        backdrop-filter: blur(10px);
+                        -webkit-backdrop-filter: blur(10px);
+                        z-index: 9999;
                         display: none; justify-content: center; align-items: center;
                         flex-direction: column; color: var(--accent);
                     }
@@ -266,6 +269,56 @@ fun HTML.gitHelpPage() {
                         border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite;
                     }
                     @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+                    .warning-box, .info-box {
+                        border-radius: 10px;
+                        padding: 14px 18px;
+                        margin: 12px 24px;
+                        font-size: 13px;
+                        line-height: 1.7;
+                        width: calc(100% - 48px);
+                        max-width: 700px;
+                        box-sizing: border-box;
+                    }
+                    .warning-box {
+                        background: rgba(245, 158, 11, 0.08);
+                        border: 1px solid rgba(245, 158, 11, 0.35);
+                        color: #f59e0b;
+                        box-shadow: 0 2px 8px rgba(245, 158, 11, 0.06);
+                    }
+                    .info-box {
+                        background: rgba(16, 185, 129, 0.08);
+                        border: 1px solid rgba(16, 185, 129, 0.35);
+                        color: #10b981;
+                        box-shadow: 0 2px 8px rgba(16, 185, 129, 0.06);
+                    }
+                    .warning-box .warning-title, .info-box .info-title {
+                        font-weight: 700;
+                        font-size: 14px;
+                        margin-bottom: 8px;
+                        display: flex;
+                        align-items: center;
+                        gap: 8px;
+                    }
+                    .warning-box .warning-title { color: #fbbf24; }
+                    .info-box .info-title { color: #34d399; }
+                    
+                    .warning-box .warning-line, .info-box .info-line {
+                        padding: 3px 0 3px 22px;
+                        position: relative;
+                    }
+                    .warning-box .warning-line::before { content: '•'; position: absolute; left: 8px; color: #f59e0b; }
+                    .info-box .info-line::before { content: '•'; position: absolute; left: 8px; color: #10b981; }
+                    
+                    .base-branch-tag {
+                        display: inline-block;
+                        background: rgba(148, 163, 184, 0.12);
+                        border: 1px solid rgba(148, 163, 184, 0.25);
+                        padding: 2px 8px;
+                        border-radius: 4px;
+                        font-size: 11px;
+                        color: #94a3b8;
+                        margin-left: 4px;
+                    }
                     """
                 )
             }
@@ -276,6 +329,47 @@ fun HTML.gitHelpPage() {
                         """
                     let currentData = null;
                     let activeModalAction = null;
+                    let visualizingBranch = null;
+
+                    function saveRecentBranch(name) {
+                        if (!name || name === 'main' || name === 'master') return;
+                        let recents = JSON.parse(localStorage.getItem('recentBranches') || '[]');
+                        recents = recents.filter(b => b !== name);
+                        recents.unshift(name);
+                        recents = recents.slice(0, 5);
+                        localStorage.setItem('recentBranches', JSON.stringify(recents));
+                    }
+
+                    function renderRecentTags(containerId, inputId, onSelect = null) {
+                        const container = document.getElementById(containerId);
+                        if (!container) return;
+                        const recents = JSON.parse(localStorage.getItem('recentBranches') || '[]');
+                        if (recents.length === 0) {
+                            container.style.display = 'none';
+                            return;
+                        }
+                        container.style.display = 'flex';
+                        container.style.flexWrap = 'wrap';
+                        container.style.gap = '8px';
+                        container.style.marginTop = '8px';
+                        container.innerHTML = '';
+                        recents.forEach(branch => {
+                            const tag = document.createElement('span');
+                            tag.style = "background: rgba(242, 115, 33, 0.1); border: 1px solid rgba(242, 115, 33, 0.3); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 11px; cursor: pointer; transition: all 0.2s;";
+                            tag.innerText = branch;
+                            tag.onclick = () => {
+                                const input = document.getElementById(inputId);
+                                if (input) {
+                                    input.value = branch;
+                                    input.dispatchEvent(new Event('input'));
+                                    if (onSelect) onSelect(branch);
+                                }
+                            };
+                            tag.onmouseover = () => tag.style.background = 'rgba(242, 115, 33, 0.2)';
+                            tag.onmouseout = () => tag.style.background = 'rgba(242, 115, 33, 0.1)';
+                            container.appendChild(tag);
+                        });
+                    }
 
                     async function init() {
                         renderSidebar();
@@ -296,12 +390,39 @@ fun HTML.gitHelpPage() {
                     }
                     
                     async function loadProject(path) {
+                        const loading = document.getElementById('globalLoading');
+                        if (loading) loading.style.display = 'flex';
                         try {
+                            // 1. Fetch updates
+                            const fetchRes = await fetch('/api/git/status', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ path: path })
+                            });
+                            
+                            if (fetchRes.ok) {
+                                const tempStatus = await fetchRes.json();
+                                const allPaths = [path, ...(tempStatus.submodules || []).map(s => s.path)];
+                                
+                                // Fetch all concurrently
+                                await Promise.all(allPaths.map(async (p) => {
+                                    try {
+                                        await fetch('/api/git/fetch', {
+                                            method: 'POST',
+                                            headers: { 'Content-Type': 'application/json' },
+                                            body: JSON.stringify({ path: p })
+                                        });
+                                    } catch (e) { console.error('Fetch failed for ' + p, e); }
+                                }));
+                            }
+
+                            // 2. Get final status
                             const response = await fetch('/api/git/status', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({ path: path })
                             });
+
                             if (response.ok) {
                                 currentData = await response.json();
                                 saveProjectToHistory(path, currentData.mainProject.name);
@@ -315,6 +436,8 @@ fun HTML.gitHelpPage() {
                             }
                         } catch (e) {
                             showToast('Networking error: ' + e.message, 'error');
+                        } finally {
+                            if (loading) loading.style.display = 'none';
                         }
                     }
 
@@ -342,14 +465,51 @@ fun HTML.gitHelpPage() {
                         const groupsContainer = document.createElement('div');
                         groupsContainer.style.display = 'flex';
                         groupsContainer.style.flexDirection = 'column';
-                        groupsContainer.style.gap = '80px';
-                        groupsContainer.style.paddingLeft = '40px';
+                        groupsContainer.style.gap = '60px';
+                        groupsContainer.style.alignItems = 'center';
                         groupsContainer.style.width = '100%';
+                        groupsContainer.style.paddingBottom = '40px';
                         
-                        const groups = {}; // branchName -> array of projects
+                        const allProjs = [data.mainProject, ...(data.submodules || [])];
+
+                        // Collect warnings
+                        const warnings = [];
+                        const parentBranches = allProjs.map(p => ({ name: p.name, baseBranch: p.parentBranch || 'N/A' }));
+                        const uniqueParents = new Set(parentBranches.map(p => p.baseBranch));
+                        if (uniqueParents.size > 1) {
+                            warnings.push('Base branches have diverged across projects and submodules:');
+                            parentBranches.forEach(p => {
+                                warnings.push('  ' + p.name + ' → base: ' + p.baseBranch);
+                            });
+                        }
+
+                        // Check for detached HEAD
                         allProjs.forEach(p => {
-                            const cBranch = p.branches.find(b => b.isCurrent);
-                            const bName = cBranch ? cBranch.name : 'Detached';
+                            const cur = visualizingBranch ? p.branches.find(b => b.name === visualizingBranch) : p.branches.find(b => b.isCurrent);
+                            if (!cur && !visualizingBranch) warnings.push(p.name + ' is in a detached HEAD state');
+                        });
+
+                        // Check for local-only branches
+                        allProjs.forEach(p => {
+                            const cur = visualizingBranch ? p.branches.find(b => b.name === visualizingBranch) : p.branches.find(b => b.isCurrent);
+                            if (cur && cur.isLocalOnly) {
+                                const modePrefix = visualizingBranch ? '[Visual Mode] ' : '';
+                                warnings.push(modePrefix + p.name + ': branch "' + cur.name + '" has not been pushed to remote');
+                            }
+                        });
+
+                        const groups = {}; // baseBranch -> array of projects
+                        allProjs.forEach(p => {
+                            let bName = p.parentBranch || 'N/A';
+                            
+                            // If visualizing, use the parent branch of the visualized branch for grouping logic
+                            if (visualizingBranch) {
+                                const vBranch = p.branches.find(b => b.name === visualizingBranch);
+                                if (vBranch) {
+                                    bName = vBranch.parentBranch || 'N/A';
+                                }
+                            }
+
                             if(!groups[bName]) groups[bName] = [];
                             groups[bName].push(p);
                         });
@@ -362,8 +522,8 @@ fun HTML.gitHelpPage() {
                             
                             // 1) The left indicator card for the branch
                             const leftCard = document.createElement('div');
-                            leftCard.style = "background:var(--card-bg); padding:10px 15px; border-radius:8px; border:1px solid var(--accent); white-space:nowrap; z-index:2; position:relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-size:14px;";
-                            leftCard.innerHTML = `<strong>Branch:</strong> <span style="color:var(--accent);">${'$'}{branchName}</span>`;
+                            leftCard.style = "background:var(--card-bg); padding:10px 15px; border-radius:8px; border:1px solid rgba(148, 163, 184, 0.4); white-space:nowrap; z-index:2; position:relative; box-shadow: 0 4px 6px rgba(0,0,0,0.3); font-size:14px;";
+                            leftCard.innerHTML = `<strong>Base:</strong> <span style="color:#94a3b8;">${'$'}{branchName}</span>`;
                             groupDiv.appendChild(leftCard);
                             
                             // 2) Horiz connector line going out right from the left card
@@ -436,12 +596,50 @@ fun HTML.gitHelpPage() {
                             const topBar = document.createElement('div');
                             topBar.className = 'top-bar';
                             topBar.innerHTML = `
-                                <div style="display:flex; gap: 10px; align-items: center; position:relative;">
-                                    <input type="text" id="branchSearch" placeholder="Search branches..." onfocus="filterBranches(this.value)" oninput="filterBranches(this.value)">
-                                    <div id="searchResults" style="position: absolute; top: 50px; background: var(--card-bg); width: 300px; max-height: 200px; overflow-y: auto; display: none; flex-direction: column; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);"></div>
+                                <div style="display:flex; flex-direction:column; gap: 8px; align-items: center; width: 100%;">
+                                    <div style="display:flex; gap: 10px; align-items: center; position:relative; width:300px;">
+                                        <input type="text" id="branchSearch" placeholder="Search branches..." onfocus="filterBranches(this.value)" oninput="filterBranches(this.value)">
+                                        <div id="searchResults" style="position: absolute; top: 50px; background: var(--card-bg); width: 300px; max-height: 200px; overflow-y: auto; display: none; flex-direction: column; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5);"></div>
+                                    </div>
+                                    <div id="recentTagsMain"></div>
                                 </div>
                             `;
                             main.appendChild(topBar);
+                            renderRecentTags('recentTagsMain', 'branchSearch', (b) => {
+                                visualizingBranch = b;
+                                saveRecentBranch(b);
+                                renderDashboard(currentData);
+                            });
+                        }
+
+                        // Warning box (always rendered, hidden if no warnings)
+                        if (warnings.length > 0) {
+                            const warningBox = document.createElement('div');
+                            warningBox.className = 'warning-box';
+                            warningBox.style.marginTop = '80px';
+                            let warningHtml = '<div class="warning-title">⚠ Warnings</div>';
+                            warnings.forEach(w => {
+                                warningHtml += '<div class="warning-line">' + w + '</div>';
+                            });
+                            warningBox.innerHTML = warningHtml;
+                            main.appendChild(warningBox);
+                        }
+
+                        // Info box for Visualizing Mode
+                        if (visualizingBranch) {
+                            const infoBox = document.createElement('div');
+                            infoBox.className = 'info-box';
+                            infoBox.style.marginTop = warnings.length > 0 ? '0' : '80px';
+                            infoBox.innerHTML = `
+                                <div class="info-title">
+                                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                                        <span>🟢 Visualizing Mode</span>
+                                        <button onclick="visualizingBranch=null; renderDashboard(currentData)" style="background:transparent; border:none; color:#10b981; cursor:pointer; font-size:12px;">Reset</button>
+                                    </div>
+                                </div>
+                                <div class="info-line">Viewing project structure with focus on branch: <strong>${'$'}{visualizingBranch}</strong></div>
+                            `;
+                            main.appendChild(infoBox);
                         }
                         
                         main.appendChild(groupsContainer);
@@ -464,22 +662,34 @@ fun HTML.gitHelpPage() {
                         
                         const currentBranch = project.branches.find(b => b.isCurrent);
                         let branchInfo = 'Detached';
-                        if(currentBranch) {
+                        let isVisual = false;
+                        let displayHash = project.commitHash;
+                        let displayDate = project.commitDate;
+
+                        if (visualizingBranch && project.branches.some(b => b.name === visualizingBranch)) {
+                            const vBranch = project.branches.find(b => b.name === visualizingBranch);
+                            branchInfo = visualizingBranch + ' <span style="font-size:10px; opacity:0.7;">(Visual)</span>';
+                            isVisual = true;
+                            displayHash = vBranch.commitHash || project.commitHash;
+                            displayDate = vBranch.commitDate || project.commitDate;
+                        } else if (currentBranch) {
                             let isLocal = currentBranch.isLocalOnly ? `<span title="Local only branch (not pushed)" style="color:#aaa; font-size:12px; margin-left:6px;">☁(Local)</span>` : ``;
                             branchInfo = currentBranch.name + isLocal;
                         }
                         
                         let commitInfoStr = '';
-                        if(project.commitHash) {
-                             commitInfoStr = `<div style="font-size:11px; color:#aaa; margin-top:5px; margin-bottom: 2px;">Commit: <span style="font-family:monospace; color:#ccc;">${'$'}{project.commitHash}</span> | Date: ${'$'}{project.commitDate}</div>`;
+                        if(displayHash) {
+                             commitInfoStr = `<div style="font-size:11px; color:#aaa; margin-top:5px; margin-bottom: 2px;">Commit: <span style="font-family:monospace; color:#ccc;">${'$'}{displayHash}</span> | Date: ${'$'}{displayDate}</div>`;
                         }
                         
+                        const accentColor = isVisual ? '#10b981' : 'var(--accent)';
+
                         div.innerHTML = `
                             <div style="display:flex; justify-content:space-between; align-items:center;">
                                 <h3 style="margin:0; overflow:hidden; text-overflow:ellipsis;" title="${'$'}{project.name}">${'$'}{project.name}</h3>
                                 <div class="card-spinner spinner" style="width:20px; height:20px; border-width:2px; display:none;"></div>
                             </div>
-                            <p style="color: var(--text-secondary); margin-top:10px;">Branch: <span style="color: var(--accent);">${'$'}{branchInfo}</span></p>
+                            <p style="color: var(--text-secondary); margin-top:10px; margin-bottom:4px;">Branch: <span style="color: ${'$'}{accentColor}; font-weight:600;">${'$'}{branchInfo}</span></p>
                             ${'$'}{commitInfoStr}
                         `;
                         return div;
@@ -550,7 +760,7 @@ fun HTML.gitHelpPage() {
                             history.forEach(p => {
                                 const activeClass = p.path === currentPath ? 'active' : '';
                                 html += `
-                                    <div class="project-item ${'$'}{activeClass}" onclick="loadProject('${'$'}{p.path.replace(/\\/g, '\\\\')}')">
+                                    <div class="project-item ${'$'}{activeClass}" onclick="visualizingBranch=null; loadProject('${'$'}{p.path.replace(/\\/g, '\\\\')}')">
                                         <div class="project-icon"></div>
                                         <div style="overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${'$'}{p.name}</div>
                                     </div>
@@ -569,6 +779,7 @@ fun HTML.gitHelpPage() {
 
                             <div class="sidebar-section">
                                 <h3>Actions</h3>
+                                <button class="action-btn" onclick="openModal('switchBranch')">Switch Branch</button>
                                 <button class="action-btn" onclick="openModal('createBranch')">Create Branch</button>
                                 <button class="action-btn" onclick="openModal('mergeBack')">Merge Back</button>
                                 <button class="action-btn" onclick="openModal('pull')">Pull</button>
@@ -610,7 +821,11 @@ fun HTML.gitHelpPage() {
                                 item.style.cursor = 'pointer';
                                 item.style.borderBottom = '1px solid var(--border)';
                                 item.innerText = branch;
-                                item.onclick = () => openCheckoutModal(branch);
+                                item.onclick = () => {
+                                    visualizingBranch = branch;
+                                    document.getElementById('searchResults').style.display = 'none';
+                                    renderDashboard(currentData);
+                                };
                                 item.onmouseover = () => item.style.background = 'rgba(255,255,255,0.1)';
                                 item.onmouseout = () => item.style.background = 'transparent';
                                 resultsContainer.appendChild(item);
@@ -640,71 +855,219 @@ fun HTML.gitHelpPage() {
                         const projectsContainer = document.getElementById('modalProjects');
                         
                         modalOverlay.style.display = 'flex';
-                        
-                        let projectsHtml = `
-                            <label style="font-weight:bold; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 4px;">
-                                <input type="checkbox" id="selectAllProjects" checked onchange="toggleSelectAllProjects()"> Select All
-                            </label>
-                        `;
+                        projectsContainer.innerHTML = '';
                         
                         const allProjects = [currentData.mainProject, ...(currentData.submodules || [])];
-                        allProjects.forEach(p => {
-                            projectsHtml += `
-                                <label style="display:flex; width:100%;">
-                                    <input type="checkbox" class="project-checkbox" value="${'$'}{p.path}" checked onchange="updateSelectAllStatus()">
-                                    <span style="overflow:hidden; text-overflow:ellipsis;">${'$'}{p.name}</span>
-                                </label>
-                            `;
-                        });
-                        projectsContainer.innerHTML = projectsHtml;
                         
                         modalInput.style.display = 'block';
                         modalInput.value = '';
                         
+                        const extraInputContainer = document.getElementById('modalExtraInputContainer');
+                        const extraInputLabel = document.getElementById('modalExtraInputLabel');
+                        const extraInput = document.getElementById('modalExtraInput');
+                        
+                        extraInputContainer.style.display = 'none';
+                        extraInput.value = '';
+
+                        // Clear previous autocomplete
+                        if (window.modalAutocompleteCleanup) {
+                            window.modalAutocompleteCleanup();
+                            window.modalAutocompleteCleanup = null;
+                        }
+
+                        if (window.modalExtraAutocompleteCleanup) {
+                            window.modalExtraAutocompleteCleanup();
+                            window.modalExtraAutocompleteCleanup = null;
+                        }
+
                         window.activeModalRequiresInput = false;
 
-                        if (action === 'createBranch') {
-                            modalTitle.innerText = 'Create New Branch';
-                            modalInput.placeholder = 'Branch name...';
+                        const currentActiveBranch = visualizingBranch || (currentData.mainProject.branches.find(b => b.isCurrent)?.name || 'main');
+
+                        if (action === 'switchBranch') {
+                            modalTitle.innerText = 'Switch Branch';
+                            modalInput.placeholder = 'Search branch...';
+                            modalInput.value = visualizingBranch || '';
                             window.activeModalRequiresInput = true;
+                            setupModalAutocomplete(modalInput);
+                        } else if (action === 'createBranch') {
+                            modalTitle.innerText = 'Create New Branch';
+                            modalInput.value = '';
+                            modalInput.placeholder = 'New branch name...';
+                            window.activeModalRequiresInput = true;
+                            
+                            extraInputContainer.style.display = 'flex';
+                            extraInputLabel.innerText = 'Base Branch (source)';
+                            extraInput.value = currentActiveBranch;
+                            setupModalAutocomplete(extraInput, true); 
                         } else if (action === 'mergeBack') {
                             modalTitle.innerText = 'Merge Back';
                             modalInput.placeholder = 'Branch to merge...';
-                            modalInput.value = currentData.mainProject.parentBranch || 'main';
+                            modalInput.value = currentData.mainProject.parentBranch || 'main'; // The source branch
                             window.activeModalRequiresInput = true;
+                            setupModalAutocomplete(modalInput);
+
+                            extraInputContainer.style.display = 'flex';
+                            extraInputLabel.innerText = 'Target Branch (into)';
+                            extraInput.value = currentActiveBranch;
+                            setupModalAutocomplete(extraInput, true); 
                         } else if (action === 'pull') {
                             modalTitle.innerText = 'Pull';
-                            modalInput.style.display = 'none';
+                            modalInput.placeholder = 'Branch to pull...';
+                            modalInput.value = currentActiveBranch;
+                            window.activeModalRequiresInput = true;
+                            setupModalAutocomplete(modalInput);
                         } else if (action === 'push') {
                             modalTitle.innerText = 'Push';
-                            modalInput.style.display = 'none';
-                            
-                            // Check if current selection has local branches
-                            const allPaths = allProjects.map(p => p.path);
-                            const hasLocalOnly = allPaths.some(p => {
-                                const proj = allProjects.find(pd => pd.path === p);
-                                const cBranch = proj ? proj.branches.find(b => b.isCurrent) : null;
-                                return cBranch && cBranch.isLocalOnly;
-                            });
-                            
-                            if (hasLocalOnly) {
-                                // Add checkbox to modal projects container dynamically
+                            modalInput.placeholder = 'Branch to push...';
+                            modalInput.value = currentActiveBranch;
+                            window.activeModalRequiresInput = true;
+                            setupModalAutocomplete(modalInput);
+                        }
+                        
+                        const existingTags = document.getElementById('modalRecentTags');
+                        if (existingTags) existingTags.parentNode.removeChild(existingTags);
+
+                        if (['switchBranch', 'createBranch', 'mergeBack'].includes(action)) {
+                            const tagsContainer = document.createElement('div');
+                            tagsContainer.id = 'modalRecentTags';
+                            modalInput.parentNode.appendChild(tagsContainer);
+                            renderRecentTags('modalRecentTags', 'modalInput');
+                        }
+
+                        updateModalProjectStatus(modalInput.value);
+
+                        if (action === 'push') {
+                             const hasLocalOnly = allProjects.some(p => {
+                                const cb = p.branches.find(b => b.isCurrent);
+                                return cb && cb.isLocalOnly;
+                             });
+                             if (hasLocalOnly) {
                                 const upstreamDiv = document.createElement('div');
                                 upstreamDiv.style = "margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--border);";
+                                upstreamDiv.id = 'pushUpstreamCheckContainer';
                                 upstreamDiv.innerHTML = `
                                     <label style="display:flex; align-items:center; gap:8px; color:#f59e0b; font-size:13px; font-weight:bold;">
                                         <input type="checkbox" id="pushSetUpstreamCb" checked>
                                         Auto-set upstream (origin) for local-only branches
                                     </label>
-                                    <p style="font-size:11px; color:var(--text-secondary); margin-top:4px; margin-left:22px;">
-                                        One or more selected branches have no remote. Keep this checked to track them automatically.
-                                    </p>
                                 `;
                                 projectsContainer.appendChild(upstreamDiv);
-                            }
+                             }
                         }
-                        
+
                         validateModalInput();
+                    }
+
+                    function updateModalProjectStatus(val) {
+                        const projectsContainer = document.getElementById('modalProjects');
+                        if (!projectsContainer || !activeModalAction) return;
+
+                        const allProjects = [currentData.mainProject, ...(currentData.submodules || [])];
+                        let projectsHtml = `
+                            <label style="font-weight:bold; border-bottom: 1px solid var(--border); padding-bottom: 8px; margin-bottom: 4px;">
+                                <input type="checkbox" id="selectAllProjects" checked onchange="toggleSelectAllProjects()"> Select All
+                            </label>
+                        `;
+
+                        allProjects.forEach(p => {
+                            let label = '';
+                            
+                            if (activeModalAction === 'switchBranch') {
+                                const branchExists = p.branches.some(b => b.name === val);
+                                if (branchExists) {
+                                    label = `<span style="color:#22c55e; font-size:12px;">(Exists)</span>`;
+                                } else {
+                                    label = `<span style="color:#f87171; font-size:12px;">(Will not change)</span>`;
+                                }
+                            } else if (activeModalAction === 'mergeBack') {
+                                const branchExists = p.branches.some(b => b.name === val);
+                                if (branchExists) {
+                                    label = `<span style="color:#22c55e; font-size:12px;">(Found)</span>`;
+                                } else {
+                                    label = `<span style="color:#f87171; font-size:12px;">(Branch missing)</span>`;
+                                }
+                            } else if (activeModalAction === 'createBranch') {
+                                if (val) {
+                                    const branchExists = p.branches.some(b => b.name === val);
+                                    if (branchExists) {
+                                        label = `<span style="color:#f87171; font-size:12px;">(Already exists)</span>`;
+                                    } else {
+                                        label = `<span style="color:#22c55e; font-size:12px;">(New)</span>`;
+                                    }
+                                }
+                            } else if (activeModalAction === 'pull' || activeModalAction === 'push') {
+                                const branchExists = p.branches.some(b => b.name === val);
+                                if (branchExists) {
+                                    label = `<span style="color:#22c55e; font-size:12px;">(Exists)</span>`;
+                                } else {
+                                    label = `<span style="color:#f87171; font-size:12px;">(Missing)</span>`;
+                                }
+                            }
+
+                            projectsHtml += `
+                                <label style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                                    <span>
+                                        <input type="checkbox" class="project-checkbox" value="${'$'}{p.path}" checked onchange="updateSelectAllStatus()">
+                                        <span style="overflow:hidden; text-overflow:ellipsis;">${'$'}{p.name}</span>
+                                    </span>
+                                    ${'$'}{label}
+                                </label>
+                            `;
+                        });
+                        projectsContainer.innerHTML = projectsHtml;
+                    }
+
+                    function setupModalAutocomplete(input, isBase = false) {
+                        const results = document.createElement('div');
+                        results.id = isBase ? 'modalBaseSearchResults' : 'modalSearchResults';
+                        results.style = "position: absolute; top: 40px; left: 0; background: #1e293b; width: 100%; max-height: 150px; overflow-y: auto; display: none; flex-direction: column; border-radius: 8px; border: 1px solid var(--border); box-shadow: 0 10px 15px -3px rgba(0,0,0,0.5); z-index: 1000;";
+                        input.parentNode.appendChild(results);
+
+                        const handler = (e) => {
+                            const query = e.target.value.toLowerCase();
+                            if (!query) {
+                                results.style.display = 'none';
+                                return;
+                            }
+                            const allBranches = new Set();
+                            currentData.mainProject.branches.forEach(b => allBranches.add(b.name));
+                            currentData.submodules.forEach(sub => sub.branches.forEach(b => allBranches.add(b.name)));
+                            const matches = Array.from(allBranches).filter(b => b.toLowerCase().includes(query));
+
+                            results.innerHTML = '';
+                            if (matches.length > 0) {
+                                results.style.display = 'flex';
+                                matches.forEach(branch => {
+                                    const item = document.createElement('div');
+                                    item.style = "padding: 10px; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.1); font-size: 13px;";
+                                    item.innerText = branch;
+                                    item.onclick = () => {
+                                        input.value = branch;
+                                        results.style.display = 'none';
+                                        if (!isBase) updateModalProjectStatus(branch);
+                                        validateModalInput();
+                                    };
+                                    item.onmouseover = () => item.style.background = 'rgba(255,255,255,0.1)';
+                                    item.onmouseout = () => item.style.background = 'transparent';
+                                    results.appendChild(item);
+                                });
+                            } else {
+                                results.style.display = 'none';
+                            }
+                        };
+
+                        input.addEventListener('input', handler);
+                        input.addEventListener('focus', handler);
+
+                        const cleanup = () => {
+                            input.removeEventListener('input', handler);
+                            input.removeEventListener('focus', handler);
+                            if (results.parentNode) results.parentNode.removeChild(results);
+                        };
+
+                        if (isBase) window.modalExtraAutocompleteCleanup = cleanup;
+                        else window.modalAutocompleteCleanup = cleanup;
                     }
 
                     function openCheckoutModal(branchName) {
@@ -714,6 +1077,19 @@ fun HTML.gitHelpPage() {
                         document.getElementById('modalOverlay').style.display = 'flex';
                         document.getElementById('modalTitle').innerText = `Checkout '${'$'}{branchName}'`;
                         document.getElementById('modalInput').style.display = 'none';
+                        
+                        if (window.modalAutocompleteCleanup) {
+                            window.modalAutocompleteCleanup();
+                            window.modalAutocompleteCleanup = null;
+                        }
+
+                        if (window.modalExtraAutocompleteCleanup) {
+                            window.modalExtraAutocompleteCleanup();
+                            window.modalExtraAutocompleteCleanup = null;
+                        }
+
+                        const extraInputContainer = document.getElementById('modalExtraInputContainer');
+                        if (extraInputContainer) extraInputContainer.style.display = 'none';
                         
                         window.activeModalRequiresInput = false;
                         validateModalInput();
@@ -766,17 +1142,41 @@ fun HTML.gitHelpPage() {
                         
                         closeModal();
                         
-                        if (activeModalAction === 'checkout') {
-                            await performCheckoutOnSelected(window.checkoutTargetBranch);
+                        if (activeModalAction === 'checkout' || activeModalAction === 'switchBranch') {
+                            const target = activeModalAction === 'switchBranch' ? inputValue : window.checkoutTargetBranch;
+                            const checkboxes = document.querySelectorAll('.project-checkbox:checked');
+                            const selected = Array.from(checkboxes).map(cb => {
+                                const path = cb.value;
+                                // For switch branch, check if branch exists in this specific project
+                                const proj = [currentData.mainProject, ...(currentData.submodules || [])].find(p => p.path === path);
+                                const exists = proj ? proj.branches.some(b => b.name === target) : false;
+                                return { path: path, createIfMissing: !exists };
+                            });
+                            
+                            window.checkoutTargetBranch = target; // Ensure it's set for performCheckout
+                            await performCheckoutOnSelected(target, selected);
+                            saveRecentBranch(target);
                         } else {
                             let endpoint = '';
                             let extraParams = {};
                             
-                            if (activeModalAction === 'createBranch') endpoint = '/api/git/create-branch';
-                            else if (activeModalAction === 'mergeBack') endpoint = '/api/git/merge';
-                            else if (activeModalAction === 'pull') endpoint = '/api/git/pull';
+                            if (activeModalAction === 'createBranch') {
+                                endpoint = '/api/git/create-branch';
+                                const bbInput = document.getElementById('modalExtraInput');
+                                if (bbInput) extraParams.baseBranch = bbInput.value.trim();
+                            }
+                            else if (activeModalAction === 'mergeBack') {
+                                endpoint = '/api/git/merge';
+                                const targetInput = document.getElementById('modalExtraInput');
+                                if (targetInput) extraParams.targetBranch = targetInput.value.trim();
+                            }
+                            else if (activeModalAction === 'pull') {
+                                endpoint = '/api/git/pull';
+                                extraParams.branch = inputValue;
+                            }
                             else if (activeModalAction === 'push') {
                                 endpoint = '/api/git/push';
+                                extraParams.branch = inputValue;
                                 const setUpstreamCb = document.getElementById('pushSetUpstreamCb');
                                 if (setUpstreamCb) {
                                     extraParams.setUpstream = setUpstreamCb.checked;
@@ -784,12 +1184,15 @@ fun HTML.gitHelpPage() {
                             }
                             
                             await performActionOnSelected(inputValue, endpoint, extraParams);
+                            if (activeModalAction === 'createBranch' || activeModalAction === 'mergeBack') {
+                                saveRecentBranch(inputValue);
+                            }
                         }
                     }
 
-                    async function performCheckoutOnSelected(targetBranch) {
+                    async function performCheckoutOnSelected(targetBranch, manualSelected = null) {
                         const checkboxes = document.querySelectorAll('.project-checkbox:checked');
-                        const selected = Array.from(checkboxes).map(cb => ({ path: cb.value, createIfMissing: cb.dataset.create === 'true' }));
+                        const selected = manualSelected || Array.from(checkboxes).map(cb => ({ path: cb.value, createIfMissing: cb.dataset.create === 'true' }));
                         
                         if (selected.length === 0) return showToast('No projects selected', 'warning');
                         
@@ -848,9 +1251,13 @@ fun HTML.gitHelpPage() {
                             try {
                                 let bodyData = {};
                                 if (activeModalAction === 'push') {
-                                    bodyData = { path: path, setUpstream: extraParams.setUpstream || false };
+                                    bodyData = { path: path, branch: extraParams.branch, setUpstream: extraParams.setUpstream || false };
                                 } else if (activeModalAction === 'pull') {
-                                    bodyData = { path: path };
+                                    bodyData = { path: path, branch: extraParams.branch };
+                                } else if (activeModalAction === 'createBranch') {
+                                    bodyData = { path: path, branch: param, baseBranch: extraParams.baseBranch };
+                                } else if (activeModalAction === 'mergeBack') {
+                                    bodyData = { path: path, branch: param, targetBranch: extraParams.targetBranch };
                                 } else {
                                     bodyData = { path: path, branch: param };
                                 }
@@ -1007,11 +1414,32 @@ fun HTML.gitHelpPage() {
                     +"Action"
                 }
                 div("modal-projects") { id = "modalProjects" }
-                input(type = InputType.text) {
-                    id = "modalInput"
-                    placeholder = "Value..."
-                    style = "margin-bottom: 10px; width: 100%; box-sizing: border-box;"
-                    onInput = "validateModalInput()"
+                div {
+                    id = "modalExtraInputContainer"
+                    style = "display: none; flex-direction: column; gap: 5px; margin-bottom: 15px;"
+                    label {
+                        id = "modalExtraInputLabel"
+                        style =
+                                "font-size: 12px; color: var(--text-secondary); margin-bottom: 3px; display: block;"
+                        +"Extra Branch"
+                    }
+                    div {
+                        style = "position: relative; width: 100%;"
+                        input(type = InputType.text) {
+                            id = "modalExtraInput"
+                            placeholder = "e.g. main, develop..."
+                            style = "width: 100%; box-sizing: border-box;"
+                        }
+                    }
+                }
+                div {
+                    style = "position: relative; width: 100%;"
+                    input(type = InputType.text) {
+                        id = "modalInput"
+                        placeholder = "Value..."
+                        style = "margin-bottom: 5px; width: 100%; box-sizing: border-box;"
+                        onInput = "updateModalProjectStatus(this.value); validateModalInput()"
+                    }
                 }
                 div {
                     style = "margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px;"
@@ -1064,6 +1492,29 @@ fun HTML.gitHelpPage() {
                         onClick = "ignoreAndContinue()"
                         +"Ignore and Continue"
                     }
+                }
+            }
+        }
+
+        // Activity Logs Modal
+        div("modal-overlay") {
+            id = "actionLogsModalOverlay"
+            style = "z-index: 210;"
+            div("modal") {
+                div {
+                    style =
+                            "display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;"
+                    h2 { +"Activity Log" }
+                    button {
+                        style =
+                                "background:transparent; border:none; color:var(--text-secondary); cursor:pointer; font-size:20px;"
+                        onClick = "hideActionLogsModal()"
+                        +"✕"
+                    }
+                }
+                div {
+                    id = "actionLogsContent"
+                    style = "max-height: 400px; overflow-y:auto; padding-right:10px;"
                 }
             }
         }
