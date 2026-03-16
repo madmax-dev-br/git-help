@@ -1,0 +1,21 @@
+{
+  "strategies": [
+    {
+      "id": "ignore-docs",
+      "title": "Ignore Documentation",
+      "ignoreFiles": ["README.md", "README.MD", "CHANGELOG.md", "LICENSE", "docs/**"],
+      "linePatterns": []
+    },
+    {
+      "id": "code-only",
+      "title": "Code Changes Only",
+      "ignoreFiles": ["*.md", "*.MD", "*.txt", "*.yml", "*.yaml", "*.json", "LICENSE"],
+      "linePatterns": [
+        {
+          "pattern": "^\\s*(\\/\\/|#|\\*)",
+          "description": "Ignore comment-only changes"
+        }
+      ]
+    }
+  ]
+}

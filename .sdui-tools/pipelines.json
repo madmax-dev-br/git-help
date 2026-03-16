@@ -1,0 +1,126 @@
+{
+  "types": [
+    {
+      "id": "deploy",
+      "title": "Deploy",
+      "subtypes": [
+        {
+          "id": "deploy-staging",
+          "title": "Staging",
+          "variables": [
+            {
+              "key": "ENVIRONMENT",
+              "label": "Environment",
+              "type": "environment",
+              "options": ["staging", "production", "development"],
+              "default": "staging",
+              "required": true
+            },
+            {
+              "key": "DRY_RUN",
+              "label": "Dry Run",
+              "type": "boolean",
+              "default": true
+            }
+          ],
+          "template": {
+            "ref": "{{BRANCH}}",
+            "variables": [
+              { "key": "DEPLOY_ENV", "value": "{{ENVIRONMENT}}", "variable_type": "env_var" },
+              { "key": "DRY_RUN", "value": "{{DRY_RUN}}", "variable_type": "env_var" }
+            ]
+          }
+        },
+        {
+          "id": "deploy-production",
+          "title": "Production",
+          "variables": [
+            {
+              "key": "VERSION_TAG",
+              "label": "Version Tag",
+              "type": "text",
+              "required": true
+            },
+            {
+              "key": "ROLLBACK",
+              "label": "Enable Rollback",
+              "type": "boolean",
+              "default": false
+            }
+          ],
+          "template": {
+            "ref": "{{BRANCH}}",
+            "variables": [
+              { "key": "DEPLOY_ENV", "value": "production", "variable_type": "env_var" },
+              { "key": "VERSION", "value": "{{VERSION_TAG}}", "variable_type": "env_var" },
+              { "key": "ROLLBACK_ENABLED", "value": "{{ROLLBACK}}", "variable_type": "env_var" }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "build",
+      "title": "Build",
+      "subtypes": [],
+      "variables": [
+        {
+          "key": "BUILD_TYPE",
+          "label": "Build Type",
+          "type": "select",
+          "options": ["debug", "release"],
+          "default": "debug"
+        },
+        {
+          "key": "CLEAN_BUILD",
+          "label": "Clean Build",
+          "type": "boolean",
+          "default": false
+        }
+      ],
+      "template": {
+        "ref": "{{BRANCH}}",
+        "variables": [
+          { "key": "BUILD_TYPE", "value": "{{BUILD_TYPE}}", "variable_type": "env_var" },
+          { "key": "CLEAN", "value": "{{CLEAN_BUILD}}", "variable_type": "env_var" }
+        ]
+      }
+    },
+    {
+      "id": "test",
+      "title": "Run Tests",
+      "subtypes": [
+        {
+          "id": "test-unit",
+          "title": "Unit Tests",
+          "variables": [],
+          "template": {
+            "ref": "{{BRANCH}}",
+            "variables": [
+              { "key": "TEST_SUITE", "value": "unit", "variable_type": "env_var" }
+            ]
+          }
+        },
+        {
+          "id": "test-integration",
+          "title": "Integration Tests",
+          "variables": [
+            {
+              "key": "TEST_TIMEOUT",
+              "label": "Timeout (seconds)",
+              "type": "text",
+              "default": "300"
+            }
+          ],
+          "template": {
+            "ref": "{{BRANCH}}",
+            "variables": [
+              { "key": "TEST_SUITE", "value": "integration", "variable_type": "env_var" },
+              { "key": "TIMEOUT", "value": "{{TEST_TIMEOUT}}", "variable_type": "env_var" }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}

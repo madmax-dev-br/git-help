@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GitLab Repository Manager</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+</head>
+<body>
+  <!-- Settings Bar -->
+  <header id="settings-bar">
+    <div class="settings-left">
+      <i class="fab fa-gitlab logo-icon"></i>
+      <h1>GitLab Manager</h1>
+    </div>
+    <div class="settings-right">
+      <span id="connection-status"></span>
+      <button id="btn-change-project" class="btn-icon hidden" title="Change Project"><i class="fas fa-folder-open"></i></button>
+    </div>
+  </header>
+
+  <div id="app">
+    <!-- Left Panel - Projects -->
+    <aside id="left-panel">
+      <div class="panel-header">
+        <i class="fas fa-folder-open"></i> Projects
+      </div>
+      <div class="panel-section">
+        <div class="search-wrap">
+          <i class="fas fa-search"></i>
+          <input type="text" id="project-search" placeholder="Search projects..." disabled />
+        </div>
+      </div>
+      <div id="project-list" class="panel-section scrollable">
+        <div class="empty-state">
+          <i class="fas fa-plug"></i>
+          <p>Connect to GitLab to load projects</p>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <main id="main-content">
+      <div id="project-detail" class="hidden">
+        <div id="project-header">
+          <div class="project-header-info">
+            <h2 id="project-name"></h2>
+            <p id="project-description"></p>
+          </div>
+          <div class="project-header-meta">
+            <a id="project-web-link" href="#" target="_blank" class="badge badge-link"><i class="fas fa-external-link-alt"></i> Open in GitLab</a>
+          </div>
+        </div>
+
+        <!-- Current branch display -->
+        <div id="current-branch-section" class="hidden">
+          <div class="section-title"><i class="fas fa-random"></i> Current Branch</div>
+          <div id="current-branch-display"></div>
+        </div>
+
+        <div id="submodules-section">
+          <div class="section-title" style="padding-top:12px"><i class="fas fa-puzzle-piece"></i> Modules</div>
+          <div id="submodules-list"></div>
+        </div>
+      </div>
+
+      <div id="no-project-selected">
+        <div class="empty-state large">
+          <i class="fab fa-gitlab"></i>
+          <p>Select a project from the left panel</p>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- Right Panel - Actions -->
+    <aside id="right-panel" class="hidden">
+      <div class="panel-header">
+        <i class="fas fa-bolt"></i> Actions
+      </div>
+      <div class="actions-list">
+        <button class="action-btn" data-action="select-branch">
+          <i class="fas fa-random"></i>
+          <span>Select Branch</span>
+          <small>Switch the current branch visually</small>
+        </button>
+        <button class="action-btn" data-action="create-branch">
+          <i class="fas fa-code-branch"></i>
+          <span>Create Branch</span>
+          <small>Create a new branch across projects</small>
+        </button>
+        <button class="action-btn" data-action="create-mr">
+          <i class="fas fa-code-merge"></i>
+          <span>Create Merge Request</span>
+          <small>Open merge request across projects</small>
+        </button>
+        <button class="action-btn" data-action="change-version">
+          <i class="fas fa-tag"></i>
+          <span>Change Version</span>
+          <small>Update version file in projects</small>
+        </button>
+        <button class="action-btn" data-action="start-pipeline">
+          <i class="fas fa-play-circle"></i>
+          <span>Start Pipeline</span>
+          <small>Trigger CI/CD pipeline</small>
+        </button>
+        <button class="action-btn" data-action="compare-branches">
+          <i class="fas fa-exchange-alt"></i>
+          <span>Compare Branches</span>
+          <small>Compare changes between two branches</small>
+        </button>
+        <button class="action-btn" data-action="merge-back">
+          <i class="fas fa-undo"></i>
+          <span>Merge Back</span>
+          <small>Merge one branch back into another</small>
+        </button>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Process Drawer -->
+  <div id="process-drawer" class="collapsed hidden">
+    <div id="process-drawer-bar" onclick="toggleProcessDrawer()">
+      <div class="drawer-bar-left">
+        <i class="fas fa-tasks"></i>
+        <span class="drawer-title">Processes</span>
+        <span class="drawer-separator">—</span>
+        <span id="drawer-bar-label">No processes</span>
+      </div>
+      <div class="drawer-bar-right">
+        <span id="drawer-badge" class="drawer-badge hidden">0</span>
+        <i id="drawer-chevron" class="fas fa-chevron-up"></i>
+      </div>
+    </div>
+    <div id="process-drawer-content">
+      <div id="process-cards"></div>
+    </div>
+  </div>
+
+  <!-- Modal -->
+  <div id="modal-overlay" class="hidden">
+    <div id="modal">
+      <div id="modal-header">
+        <h3 id="modal-title"></h3>
+        <button id="modal-close"><i class="fas fa-times"></i></button>
+      </div>
+      <div id="modal-body"></div>
+      <div id="modal-footer">
+        <button id="modal-cancel" class="btn-secondary">Cancel</button>
+        <button id="modal-run" class="btn-primary"><i class="fas fa-play"></i> Run</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Setup Overlay -->
+  <div id="setup-overlay">
+    <div class="setup-card">
+      <div class="setup-icon"><i class="fab fa-gitlab"></i></div>
+      <h2>GitLab Manager Setup</h2>
+      <p class="setup-desc">Enter the path to a project that contains <code>local.properties</code> with your GitLab access token.</p>
+      <div class="setup-field">
+        <label for="setup-path"><i class="fas fa-folder"></i> Project Path</label>
+        <input type="text" id="setup-path" placeholder="/home/user/my-project" />
+      </div>
+      <div id="setup-error" class="setup-error hidden"></div>
+      <button id="btn-setup-connect" class="btn-primary"><i class="fas fa-plug"></i> Connect</button>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
